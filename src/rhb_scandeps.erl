@@ -12,17 +12,16 @@
 -export([scan/1]).
 
 %% Scan an erlang source file for dependencies
--spec scan(
-    file:name()
-    | binary()
-    | string()
-) ->
-    list(
-        {module, atom(), file:name()}
-        | {file, file:name()}
-    ).
+-spec scan( file:name_all()
+          | binary()
+          | string()) ->
+          list(
+            {module, atom(), file:name()}
+            | {file, file:name()}
+           ).
 scan(File) ->
     {ok, Form} = epp:parse_file(File, []),
+
     Deps0 = scan0(Form, sets:new()),
 
     %% Remove the dependency on itself
@@ -32,25 +31,25 @@ scan(File) ->
 
     %% Lookup filenames for module dependencies
     lists:filtermap(
-        fun
-            ({module, Mod}) ->
-                case code:which(Mod) of
-                    preloaded ->
-                        %% ignore preloaded modules
-                        false;
-                    cover_compiled ->
-                        {true, {module, Mod}};
-                    non_existing ->
-                        %% Loadable beam file cannot be found
-                        {true, {module, Mod, non_existing}};
-                    Filename ->
-                        {true, {module, Mod, Filename}}
-                end;
-            (Other) ->
-                {true, Other}
-        end,
-        Deps2
-    ).
+      fun
+          ({module, Mod}) ->
+              case code:which(Mod) of
+                  preloaded ->
+                      %% ignore preloaded modules
+                      false;
+                  cover_compiled ->
+                      {true, {module, Mod}};
+                  non_existing ->
+                      %% Loadable beam file cannot be found
+                      {true, {module, Mod, non_existing}};
+                  Filename ->
+                      {true, {module, Mod, Filename}}
+              end;
+          (Other) ->
+              {true, Other}
+      end,
+      Deps2
+     ).
 
 -spec scan0(list(tuple()), sets:set()) -> sets:set().
 scan0([], Deps) ->
@@ -63,7 +62,7 @@ scan0([{attribute, _, compile, {parse_transform, PtMod}} | Rest], Deps) ->
     scan0(Rest, sets:add_element({module, PtMod}, Deps));
 scan0([{attribute, _, behavior, Behavior} | Rest], Deps) ->
     scan0(Rest, sets:add_element({module, Behavior}, Deps));
-scan0([_ | Rest], Deps) ->
+scan0([_Other | Rest], Deps) ->
     scan0(Rest, Deps).
 
 -ifdef(EUNIT).
@@ -71,6 +70,18 @@ scan0([_ | Rest], Deps) ->
 %% Tests
 
 scan_test() ->
-    ok.
+    rhb_utils:in_tmpdir(
+      fun() ->
+              file:write_file("bad.erl", "-module(bad).\n"),
+              {ok, bad} = compile:file("bad.erl"),
+              file:write_file(
+                "foobar.erl",
+                "-include(\"foobar.hrl\").\n"
+                "-behavior(bad).\n"
+               ),
+              file:write_file("foobar.hrl", "-define(FOO, bar)."),
+              Deps = scan("foobar.erl"),
+              ?assertNotEqual(Deps, [])
+      end).
 
 -endif.
